@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>3D透過テキスト保存ツール</title>
+    <title>3D日本語テキスト保存ツール</title>
     <style>
-        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: "Helvetica Neue", Arial, "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif; }
         canvas { display: block; }
         
         #gui-container {
@@ -15,20 +15,22 @@
             background: rgba(255, 255, 255, 0.2);
             padding: 15px;
             border-radius: 8px;
-            backdrop-filter: blur(5px);
+            backdrop-filter: blur(10px);
             display: flex;
             flex-direction: column;
             gap: 10px;
             border: 1px solid rgba(255, 255, 255, 0.3);
             z-index: 10;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
         }
         .input-group { display: flex; gap: 10px; }
         input {
-            padding: 8px;
+            padding: 10px;
             border-radius: 4px;
             border: none;
             outline: none;
-            width: 180px;
+            width: 200px;
+            font-size: 14px;
         }
         button {
             padding: 8px 15px;
@@ -40,43 +42,55 @@
             transition: 0.3s;
         }
         button:hover { background: #ddd; }
-        #save-btn { background: #4CAF50; color: white; }
+        #save-btn { background: #4CAF50; color: white; margin-top: 5px; }
         #save-btn:hover { background: #45a049; }
+
+        #loading-msg {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            color: white;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: none;
+        }
     </style>
 </head>
 <body>
 
 <div id="gui-container">
     <div class="input-group">
-        <input type="text" id="text-input" placeholder="Enter Text..." value="NET">
+        <input type="text" id="text-input" placeholder="テキストを入力..." value="輝き">
         <button id="update-btn">生成</button>
     </div>
     <button id="save-btn">PNGとして保存（背景透過）</button>
 </div>
+<div id="loading-msg">フォント読み込み中...</div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/geometries/TextGeometry.js"></script>
 
 <script>
     // --- 1. 基本設定 ---
     const scene = new THREE.Scene();
-    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-    camera.position.set(0, 0, 8);
+    const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 10);
 
-    // alpha: true で背景透過を許可, preserveDrawingBuffer: true で画像保存を可能に
     const renderer = new THREE.WebGLRenderer({ 
         antialias: true, 
         alpha: true, 
         preserveDrawingBuffer: true 
     });
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     document.body.appendChild(renderer.domElement);
 
     const controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
 
-    // --- 2. 環境マップ ---
+    // --- 2. 環境マップ（クローム感の演出） ---
     const path = 'https://threejs.org/examples/textures/cube/Park2/';
     const format = '.jpg';
     const urls = [
@@ -91,36 +105,53 @@
     const chromeMaterial = new THREE.MeshStandardMaterial({
         color: 0xffffff,
         metalness: 1.0,
-        roughness: 0.02,
+        roughness: 0.05,
         envMap: reflectionCube,
-        envMapIntensity: 1.2,
+        envMapIntensity: 1.5,
     });
 
-    // --- 4. テキスト生成 ---
+    // --- 4. 日本語テキスト生成 ---
     let textMesh = null;
     const fontLoader = new THREE.FontLoader();
     let loadedFont = null;
+    const loadingMsg = document.getElementById('loading-msg');
 
-    fontLoader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (font) => {
-        loadedFont = font;
-        createText(document.getElementById('text-input').value);
-    });
+    // ★ ここに用意したJSONファイルのパスを入力してください
+    const FONT_PATH = './Noto Sans JP Black_Regular.json';
+
+    loadingMsg.style.display = 'block';
+    fontLoader.load(FONT_PATH, 
+        (font) => {
+            loadedFont = font;
+            loadingMsg.style.display = 'none';
+            createText(document.getElementById('text-input').value);
+        },
+        // 進捗管理
+        (xhr) => { console.log((xhr.loaded / xhr.total * 100) + '% loaded'); },
+        // エラーハンドリング
+        (err) => {
+            loadingMsg.innerText = "フォントの読み込みに失敗しました。パスを確認してください。";
+            console.error(err);
+        }
+    );
 
     function createText(message) {
-        if (!loadedFont) return;
+        if (!loadedFont || !message) return;
+        
         if (textMesh) {
             scene.remove(textMesh);
             textMesh.geometry.dispose();
         }
 
+        // 日本語は画数が多いので、bevel（面取り）を少し控えめに設定
         const textGeometry = new THREE.TextGeometry(message, {
             font: loadedFont,
-            size: 1.5,
-            height: 0.4,
+            size: 1.8,
+            height: 0.5,
             curveSegments: 12,
             bevelEnabled: true,
-            bevelThickness: 0.05,
-            bevelSize: 0.05,
+            bevelThickness: 0.04,
+            bevelSize: 0.03,
             bevelSegments: 5
         });
         textGeometry.center();
@@ -135,36 +166,41 @@
     const saveBtn = document.getElementById('save-btn');
 
     updateBtn.addEventListener('click', () => createText(inputField.value));
+    
+    // Enterキーでも生成できるように
+    inputField.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') createText(inputField.value);
+    });
 
     saveBtn.addEventListener('click', () => {
-        // 1. 背景を一時的に透明にする
         const currentBg = scene.background;
-        scene.background = null;
+        scene.background = null; // 背景を透明にする
         
-        // 2. 描写を更新
         renderer.render(scene, camera);
         
-        // 3. 画像として書き出し
         const dataURL = renderer.domElement.toDataURL('image/png');
         const link = document.createElement('a');
-        link.download = '3d-text-capture.png';
+        link.download = `3d-text-${inputField.value}.png`;
         link.href = dataURL;
         link.click();
         
-        // 4. 背景を元に戻す
-        scene.background = currentBg;
+        scene.background = currentBg; // 背景を戻す
     });
 
     // --- 6. ライティング ---
-    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
-    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    directionalLight.position.set(5, 10, 7);
-    scene.add(directionalLight);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const pointLight = new THREE.PointLight(0xffffff, 1);
+    pointLight.position.set(10, 10, 10);
+    scene.add(pointLight);
 
-    // --- 7. アニメーション ---
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(-5, 5, 5);
+    scene.add(dirLight);
+
+    // --- 7. アニメーションループ ---
     function animate() {
         requestAnimationFrame(animate);
-        controls.update(); // 自動回転(textMesh.rotation)は削除しました
+        controls.update();
         renderer.render(scene, camera);
     }
 
