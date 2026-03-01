@@ -1,0 +1,180 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D透過テキスト保存ツール</title>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; }
+        canvas { display: block; }
+        
+        #gui-container {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(255, 255, 255, 0.2);
+            padding: 15px;
+            border-radius: 8px;
+            backdrop-filter: blur(5px);
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            z-index: 10;
+        }
+        .input-group { display: flex; gap: 10px; }
+        input {
+            padding: 8px;
+            border-radius: 4px;
+            border: none;
+            outline: none;
+            width: 180px;
+        }
+        button {
+            padding: 8px 15px;
+            background: #ffffff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: 0.3s;
+        }
+        button:hover { background: #ddd; }
+        #save-btn { background: #4CAF50; color: white; }
+        #save-btn:hover { background: #45a049; }
+    </style>
+</head>
+<body>
+
+<div id="gui-container">
+    <div class="input-group">
+        <input type="text" id="text-input" placeholder="Enter Text..." value="NET">
+        <button id="update-btn">生成</button>
+    </div>
+    <button id="save-btn">PNGとして保存（背景透過）</button>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/controls/OrbitControls.js"></script>
+
+<script>
+    // --- 1. 基本設定 ---
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+    camera.position.set(0, 0, 8);
+
+    // alpha: true で背景透過を許可, preserveDrawingBuffer: true で画像保存を可能に
+    const renderer = new THREE.WebGLRenderer({ 
+        antialias: true, 
+        alpha: true, 
+        preserveDrawingBuffer: true 
+    });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    document.body.appendChild(renderer.domElement);
+
+    const controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+
+    // --- 2. 環境マップ ---
+    const path = 'https://threejs.org/examples/textures/cube/Park2/';
+    const format = '.jpg';
+    const urls = [
+        path + 'posx' + format, path + 'negx' + format,
+        path + 'posy' + format, path + 'negy' + format,
+        path + 'posz' + format, path + 'negz' + format
+    ];
+    const reflectionCube = new THREE.CubeTextureLoader().load(urls);
+    scene.background = reflectionCube;
+
+    // --- 3. マテリアル ---
+    const chromeMaterial = new THREE.MeshStandardMaterial({
+        color: 0xffffff,
+        metalness: 1.0,
+        roughness: 0.02,
+        envMap: reflectionCube,
+        envMapIntensity: 1.2,
+    });
+
+    // --- 4. テキスト生成 ---
+    let textMesh = null;
+    const fontLoader = new THREE.FontLoader();
+    let loadedFont = null;
+
+    fontLoader.load('https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', (font) => {
+        loadedFont = font;
+        createText(document.getElementById('text-input').value);
+    });
+
+    function createText(message) {
+        if (!loadedFont) return;
+        if (textMesh) {
+            scene.remove(textMesh);
+            textMesh.geometry.dispose();
+        }
+
+        const textGeometry = new THREE.TextGeometry(message, {
+            font: loadedFont,
+            size: 1.5,
+            height: 0.4,
+            curveSegments: 12,
+            bevelEnabled: true,
+            bevelThickness: 0.05,
+            bevelSize: 0.05,
+            bevelSegments: 5
+        });
+        textGeometry.center();
+
+        textMesh = new THREE.Mesh(textGeometry, chromeMaterial);
+        scene.add(textMesh);
+    }
+
+    // --- 5. UIイベント & 保存機能 ---
+    const inputField = document.getElementById('text-input');
+    const updateBtn = document.getElementById('update-btn');
+    const saveBtn = document.getElementById('save-btn');
+
+    updateBtn.addEventListener('click', () => createText(inputField.value));
+
+    saveBtn.addEventListener('click', () => {
+        // 1. 背景を一時的に透明にする
+        const currentBg = scene.background;
+        scene.background = null;
+        
+        // 2. 描写を更新
+        renderer.render(scene, camera);
+        
+        // 3. 画像として書き出し
+        const dataURL = renderer.domElement.toDataURL('image/png');
+        const link = document.createElement('a');
+        link.download = '3d-text-capture.png';
+        link.href = dataURL;
+        link.click();
+        
+        // 4. 背景を元に戻す
+        scene.background = currentBg;
+    });
+
+    // --- 6. ライティング ---
+    scene.add(new THREE.AmbientLight(0xffffff, 0.4));
+    const directionalLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    directionalLight.position.set(5, 10, 7);
+    scene.add(directionalLight);
+
+    // --- 7. アニメーション ---
+    function animate() {
+        requestAnimationFrame(animate);
+        controls.update(); // 自動回転(textMesh.rotation)は削除しました
+        renderer.render(scene, camera);
+    }
+
+    window.addEventListener('resize', () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+    });
+
+    animate();
+</script>
+</body>
+</html>
